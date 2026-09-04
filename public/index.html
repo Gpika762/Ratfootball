@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rat Information - Sitio Oficial</title>
+  <style>
+    body {
+      background-color: #1a1a2e;
+      color: #ffffff;
+      font-family: "Comic Sans MS", "Comic Sans", cursive, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    header {
+      text-align: center;
+      padding: 20px;
+      background: #16213e;
+      border-radius: 12px;
+      border: 3px solid #00fff0;
+      margin-bottom: 25px;
+      box-shadow: 0 4px 15px rgba(0, 255, 240, 0.2);
+    }
+    h1 {
+      color: #e94560;
+      margin: 0;
+      font-size: 2.5rem;
+      text-shadow: 2px 2px #000;
+    }
+    .status-badge {
+      display: inline-block;
+      background: #00c853;
+      color: #000;
+      padding: 5px 15px;
+      border-radius: 20px;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .noticia-card {
+      background: #0f3460;
+      border: 2px solid #e94560;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      transition: transform 0.2s;
+    }
+    .noticia-card:hover {
+      transform: translateY(-3px);
+    }
+    .noticia-titulo {
+      color: #00fff0;
+      margin-top: 0;
+    }
+    .noticia-urgente {
+      border-color: #ff0055;
+      background: #2a0818;
+    }
+    .badge-urgente {
+      background: #ff0055;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-size: 0.8rem;
+    }
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      opacity: 0.7;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <h1>🐀 RAT INFORMATION 🏆</h1>
+      <p>Novedades oficiales de Rat Football</p>
+      <div class="status-badge">● Servidor Online</div>
+    </header>
+
+    <div id="noticias-container">
+      <p style="text-align: center;">Cargando noticias desde el servidor...</p>
+    </div>
+
+    <footer>
+      <p>Rat Football Game 2026 - Conectado a Render Cloud</p>
+    </footer>
+  </div>
+
+  <script>
+    async function cargarNoticias() {
+      const contenedor = document.getElementById('noticias-container');
+      try {
+        const res = await fetch('/api/noticias');
+        const noticias = await res.json();
+
+        if (noticias.length === 0) {
+            contenedor.innerHTML = '<p style="text-align:center;">No hay noticias publicadas por el momento.</p>';
+            return;
+        }
+
+        contenedor.innerHTML = '';
+        noticias.forEach(item => {
+          const card = document.createElement('div');
+          card.className = `noticia-card ${item.es_urgente ? 'noticia-urgente' : ''}`;
+          
+          card.innerHTML = `
+            <h2 class="noticia-titulo">
+              ${item.es_urgente ? '<span class="badge-urgente">URGENTE</span> ' : ''}
+              ${item.titulo}
+            </h2>
+            <p>${item.descripcion}</p>
+          `;
+          contenedor.appendChild(card);
+        });
+      } catch (err) {
+        contenedor.innerHTML = '<p style="text-align:center; color:#ff0055;">Error al cargar las noticias.</p>';
+      }
+    }
+
+    cargarNoticias();
+  </script>
+</body>
+</html>
