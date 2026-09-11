@@ -56,7 +56,6 @@ app.post('/api/registro', async (req, res) => {
         return res.status(400).json({ exito: false, mensaje: "Debes ingresar usuario y contraseña" });
     }
 
-    // Limpieza de espacios en blanco invisibles
     username = username.trim();
     password = password.trim();
 
@@ -65,17 +64,25 @@ app.post('/api/registro', async (req, res) => {
     }
 
     try {
-        // Busqueda insensible a mayúsculas/minúsculas
         const existe = await pool.query('SELECT id FROM jugadores WHERE LOWER(username) = LOWER($1)', [username]);
         if (existe.rows.length > 0) {
             return res.json({ exito: false, mensaje: "El nombre de usuario ya está registrado" });
         }
 
-        // Crear nuevo jugador con valores por defecto
+        // Skins iniciales (solo raton_clasico)
+        const skinsIniciales = JSON.stringify(['raton_clasico']);
+
         const nuevo = await pool.query(
-            'INSERT INTO jugadores (username, password, monedas, copas, skin_equipada) VALUES ($1, $2, 0, 0, $3) RETURNING *',
-            [username, password, 'raton_clasico']
+            'INSERT INTO jugadores (username, password, monedas, copas, skin_equipada, skins_desbloqueadas) VALUES ($1, $2, 0, 0, $3, $4) RETURNING *',
+            [username, password, 'raton_clasico', skinsIniciales]
         );
+
+        let skinsArr = ['raton_clasico'];
+        try {
+            skinsArr = typeof nuevo.rows[0].skins_desbloqueadas === 'string' 
+                ? JSON.parse(nuevo.rows[0].skins_desbloqueadas) 
+                : nuevo.rows[0].skins_desbloqueadas;
+        } catch (e) {}
 
         res.json({
             exito: true,
@@ -84,7 +91,8 @@ app.post('/api/registro', async (req, res) => {
                 username: nuevo.rows[0].username,
                 monedas: nuevo.rows[0].monedas,
                 copas: nuevo.rows[0].copas,
-                skin: nuevo.rows[0].skin_equipada
+                skin: nuevo.rows[0].skin_equipada,
+                skins_desbloqueadas: skinsArr
             }
         });
     } catch (error) {
@@ -114,6 +122,16 @@ app.post('/api/login', async (req, res) => {
 
         if (resultado.rows.length > 0) {
             const row = resultado.rows[0];
+
+            let skinsArr = ['raton_clasico'];
+            if (row.skins_desbloqueadas) {
+                try {
+                    skinsArr = typeof row.skins_desbloqueadas === 'string' 
+                        ? JSON.parse(row.skins_desbloqueadas) 
+                        : row.skins_desbloqueadas;
+                } catch (e) {}
+            }
+
             res.json({
                 exito: true,
                 mensaje: "¡Inicio de sesión exitoso!",
@@ -121,7 +139,8 @@ app.post('/api/login', async (req, res) => {
                     username: row.username,
                     monedas: row.monedas,
                     copas: row.copas,
-                    skin: row.skin_equipada
+                    skin: row.skin_equipada,
+                    skins_desbloqueadas: skinsArr
                 }
             });
         } else {
@@ -134,7 +153,123 @@ app.post('/api/login', async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 5. API GAMEMAKER: GUARDAR PROGRESO DEL JUGADOR
+// 5. API TIENDA: COMPRAR SKIN / OFERTA ESPECIAL
+// -------------------------------------------------------------
+app.post('/api/comprar_skin', async (req, res) => {
+    let { username, skin_id, precio } = req.body;
+
+    if (!username || !skin_id || precio === undefined) {
+        return res.status(400).json({ exito: false, mensaje: "Datos de compra incompletos" });
+    }
+
+    username = username.trim();
+
+    try {
+        const resultado = await pool.query(
+            'SELECT * FROM jugadores WHERE LOWER(username) = LOWER($1)',
+            [username]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({ exito: false, mensaje: "Usuario no encontrado" });
+        }
+
+        const row = resultado.rows[0];
+        let skinsArr = [];
+
+        if (row.skins_desbloqueadas) {
+            try {
+                skinsArr = typeof row.skins_desbloqueadas === 'string' 
+                    ? JSON.parse(row.skins_desbloqueadas) 
+                    : row.skins_desbloqueadas;
+            } catch (e) {}
+        }
+
+        if (skinsArr.includes(skin_id)) {
+            return res.json({ exito: false, mensaje: "Ya posees esta skin" });
+        }
+
+        if (row.monedas < precio) {
+            return res.json({ exito: false, mensaje: "Monedas insuficientes" });
+        }
+
+        const nuevasMonedas = row.monedas - precio;
+        skinsArr.push(skin_id);
+
+        const skinsGuardar = JSON.stringify(skinsArr);
+
+        await pool.query(
+            'UPDATE jugadores SET monedas = $1, skins_desbloqueadas = $2 WHERE LOWER(username) = LOWER($3)',
+            [nuevasMonedas, skinsGuardar, username]
+        );
+
+        res.json({
+            exito: true,
+            mensaje: "¡Compra realizada con éxito!",
+            monedas: nuevasMonedas,
+            skins_desbloqueadas: skinsArr
+        });
+
+    } catch (error) {
+        console.error("Error al comprar skin:", error);
+        res.status(500).json({ exito: false, mensaje: "Error al procesar la compra" });
+    }
+});
+
+// -------------------------------------------------------------
+// 6. API TIENDA: EQUIPAR SKIN
+// -------------------------------------------------------------
+app.post('/api/equipar_skin', async (req, res) => {
+    let { username, skin_id } = req.body;
+
+    if (!username || !skin_id) {
+        return res.status(400).json({ exito: false, mensaje: "Datos incompletos" });
+    }
+
+    username = username.trim();
+
+    try {
+        const resultado = await pool.query(
+            'SELECT skins_desbloqueadas FROM jugadores WHERE LOWER(username) = LOWER($1)',
+            [username]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({ exito: false, mensaje: "Usuario no encontrado" });
+        }
+
+        let skinsArr = [];
+        const rawSkins = resultado.rows[0].skins_desbloqueadas;
+
+        if (rawSkins) {
+            try {
+                skinsArr = typeof rawSkins === 'string' ? JSON.parse(rawSkins) : rawSkins;
+            } catch (e) {}
+        }
+
+        if (!skinsArr.includes(skin_id)) {
+            return res.json({ exito: false, mensaje: "No tienes esta skin desbloqueada" });
+        }
+
+        await pool.query(
+            'UPDATE jugadores SET skin_equipada = $1 WHERE LOWER(username) = LOWER($2)',
+            [skin_id, username]
+        );
+
+        res.json({
+            exito: true,
+            mensaje: "Skin equipada correctamente",
+            skin_equipada: skin_id
+        });
+
+    } catch (error) {
+        console.error("Error al equipar skin:", error);
+        res.status(500).json({ exito: false, mensaje: "Error en el servidor al equipar skin" });
+    }
+});
+
+// -------------------------------------------------------------
+// 7. API GAMEMAKER: GUARDAR PROGRESO DEL JUGADOR
 // -------------------------------------------------------------
 app.post('/api/guardar_progreso', async (req, res) => {
     let { username, monedas, copas, skin } = req.body;
@@ -158,7 +293,7 @@ app.post('/api/guardar_progreso', async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 6. API NOTICIAS
+// 8. API NOTICIAS
 // -------------------------------------------------------------
 app.get('/api/noticias', async (req, res) => {
     try {
